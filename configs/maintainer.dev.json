@@ -1,0 +1,14 @@
+{
+  "workspace": "..",
+  "pool_config": "../oc-eval/configs/pool.dev.json",
+  "split": "dev",
+  "seed": 1,
+  "per_suite": 150,
+  "metagraph": {"backend": "local", "path": "configs/registry.dev.json"},
+  "key_path": "state/maintainer.key",
+  "state_db": "state/maintainer.db",
+  "repos": {
+    "oc-router": {"dir": "../oc-router"},
+    "oc-harness": {"dir": "../oc-harness"}
+  }
+}

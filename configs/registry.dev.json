@@ -1,0 +1,16 @@
+{
+ "miners": {
+  "5DZZVVg1KwSDZ2PQbmpEjLGSdTMNhUpoixEeafzoWup8dQhU": {
+   "github_login": "genesis-miner",
+   "registered_ts": 0
+  },
+  "5EtP7K9V6KMvGKA6j9kxBH5kkDEAyPPUB1Ya4dvA35iyCe3J": {
+   "github_login": "copycat-miner",
+   "registered_ts": 0
+  },
+  "5DChvaCWPnStdNpVe9WfzHmxmpiNX5AqcXuDSUH3uQtYD7ti": {
+   "github_login": "harness-miner",
+   "registered_ts": 0
+  }
+ }
+}
