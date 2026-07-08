@@ -4,7 +4,7 @@ import threading
 
 import pytest
 
-from oc_eval import mockpool
+from omakase_eval import mockpool
 
 
 def _port_open(port: int) -> bool:

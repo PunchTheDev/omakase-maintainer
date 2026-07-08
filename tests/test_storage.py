@@ -1,6 +1,6 @@
 import pytest
 
-from oc_maintainer import storage, weights_crypto
+from omakase_maintainer import storage, weights_crypto
 
 
 def test_local_cas_roundtrip_and_sha(tmp_path):

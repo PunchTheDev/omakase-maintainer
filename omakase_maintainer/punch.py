@@ -1,4 +1,4 @@
-"""Peggy — the maintainer agent. The outer loop that makes it a competition.
+"""Punch — the maintainer agent. The outer loop that makes it a competition.
 
 process() takes one submission and drives it end to end: parse → gate walk →
 admission control → canonical rerun on the trusted host → verdict → signed
@@ -13,9 +13,9 @@ import subprocess
 import sys
 from dataclasses import dataclass
 
-from oc_eval import baselines as bl
-from oc_eval import engine, frontier, routers, score, stats, suites, transcripts
-from oc_eval import transcripts as tx_mod
+from omakase_eval import baselines as bl
+from omakase_eval import engine, frontier, routers, score, stats, suites, transcripts
+from omakase_eval import transcripts as tx_mod
 
 from . import gates, signing
 from .keys import MaintainerKey
@@ -23,10 +23,10 @@ from .metagraph import Metagraph
 from .state import MECH_FAIL_DECAY, RERUN_FAIL_DECAY, State
 
 REQUIRED = {
-    "oc-router": ["competition", "hotkey", "github_login", "weights_sha256", "self_score", "signature"],
-    "oc-harness": ["competition", "hotkey", "github_login", "claimed_delta", "self_score", "signature"],
+    "omakase-router": ["competition", "hotkey", "github_login", "weights_sha256", "self_score", "signature"],
+    "omakase-harness": ["competition", "hotkey", "github_login", "claimed_delta", "self_score", "signature"],
 }
-UNLOCKED = {"oc-router": ("submission/", "runs/"), "oc-harness": ("harness/", "runs/")}
+UNLOCKED = {"omakase-router": ("submission/", "runs/"), "omakase-harness": ("harness/", "runs/")}
 
 
 @dataclass
@@ -46,11 +46,11 @@ class Decision:
     entry_sha: str | None = None
 
 
-class Peggy:
+class Punch:
     def __init__(self, workspace: str, pool_config: str, meta: Metagraph, key: MaintainerKey,
                  state: State, split: str = "dev", seed: int = 1, per_suite: int = 150):
         self.ws = workspace
-        self.oc_eval_dir = os.path.join(workspace, "oc-eval")
+        self.omakase_eval_dir = os.path.join(workspace, "omakase-eval")
         self.pool_config = pool_config
         self.meta = meta
         self.key = key
@@ -89,13 +89,13 @@ class Peggy:
             return self._close(sub, sub_id, reason, mech=True)
 
         # -- gate 3: artifact --
-        ok, reason = (gates.gate_artifact_router(sub.repo_dir, self.oc_eval_dir) if comp == "oc-router"
+        ok, reason = (gates.gate_artifact_router(sub.repo_dir, self.omakase_eval_dir) if comp == "omakase-router"
                       else gates.gate_artifact_harness(sub.repo_dir))
         if not ok:
             return self._close(sub, sub_id, reason, mech=True)
 
         # -- gate 4: canonical rerun (the expensive, trusted-host step) --
-        blob, passed, tier = (self._rerun_router(sub) if comp == "oc-router" else self._rerun_harness(sub))
+        blob, passed, tier = (self._rerun_router(sub) if comp == "omakase-router" else self._rerun_harness(sub))
         self._write_run_blob(comp, sub.pr, blob)
 
         if not passed:
@@ -105,7 +105,7 @@ class Peggy:
             return Decision("closed", "not-significant", blob=blob)
 
         # -- reward: signed ledger entry + label + merge --
-        if comp == "oc-harness":  # main advances to the merged harness — the next PR must beat it
+        if comp == "omakase-harness":  # main advances to the merged harness — the next PR must beat it
             self._rebaseline_harness(sub)
         entry = self._append_signed(comp, {
             "competition": comp, "pr": sub.pr, "hotkey": p["hotkey"], "label": tier,
@@ -122,7 +122,7 @@ class Peggy:
         base = bl.load(os.path.join(sub.repo_dir, "runs", "baselines.dev.json"))
         router = routers.load_router(os.path.join(sub.repo_dir, "submission", "manifest.json"),
                                      os.path.join(sub.repo_dir, "submission"))
-        from oc_eval.workers import Pool
+        from omakase_eval.workers import Pool
 
         pool = Pool.from_config(self.pool_config)
         tasks = suites.generate_split(self.split, self.seed)
@@ -132,12 +132,12 @@ class Peggy:
         incumbent = bl.load_incumbent(runs_dir, bl.deserialize_results(base.best_single_results))
         verdict = score.judge(results, incumbent, base.oracle_accuracy)
         if verdict.passed:  # new champion — cache its results so the next challenger must beat it
-            bl.write_champion(os.path.join(self.ws, "oc-router", "runs"), results, self.split, self.seed)
+            bl.write_champion(os.path.join(self.ws, "omakase-router", "runs"), results, self.split, self.seed)
         tx = transcripts.build(tasks, results, self.seed,
-                               header={"competition": "oc-router", "split": self.split, "seed": self.seed})
+                               header={"competition": "omakase-router", "split": self.split, "seed": self.seed})
         tx_dir = os.path.join(sub.repo_dir, "runs", "transcripts")
         blob = {
-            "competition": "oc-router",
+            "competition": "omakase-router",
             "manifest_sha256": routers.sha256_file(os.path.join(sub.repo_dir, "submission", "manifest.json")),
             "split": self.split, "seed": self.seed, "n_tasks": len(tasks),
             "mde": round(stats.minimum_detectable_effect(len(tasks)), 4),
@@ -146,7 +146,7 @@ class Peggy:
         return blob, verdict.passed, ("champion" if verdict.passed else None)
 
     def _rerun_harness(self, sub: Submission):
-        out = os.path.join(sub.repo_dir, "runs", f"peggy-{sub.pr}.json")
+        out = os.path.join(sub.repo_dir, "runs", f"punch-{sub.pr}.json")
         subprocess.run(
             [sys.executable, "eval_adapter.py", "--pool", self.pool_config,
              "--split", self.split, "--seed", str(self.seed), "--per-suite", str(self.per_suite),
@@ -192,7 +192,7 @@ class Peggy:
         return Decision("closed", reason)
 
     def _snapshot(self) -> None:
-        state_dir = os.path.join(self.ws, "oc-maintainer", "state")
+        state_dir = os.path.join(self.ws, "omakase-maintainer", "state")
         self.state.publish_snapshots(state_dir)
         # publish the PUBLIC key so any reader can verify ledger signatures (never the secret)
         with open(os.path.join(state_dir, "maintainer.pub.json"), "w") as f:

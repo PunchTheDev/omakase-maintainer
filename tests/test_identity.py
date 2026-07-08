@@ -1,10 +1,10 @@
 from substrateinterface import Keypair
 
-from oc_maintainer import identity
+from omakase_maintainer import identity
 
 
 def _payload(kp):
-    p = {"competition": "oc-router", "hotkey": kp.ss58_address, "github_login": "alice",
+    p = {"competition": "omakase-router", "hotkey": kp.ss58_address, "github_login": "alice",
          "weights_sha256": "a" * 64}
     p["signature"] = identity.sign_payload(kp, p)
     return p

@@ -1,4 +1,4 @@
-"""oc-maintainer CLI — operate Peggy."""
+"""omakase-maintainer CLI — operate Punch."""
 from __future__ import annotations
 
 import argparse
@@ -9,7 +9,7 @@ import time
 from . import metagraph
 from .intake import GitHubIntake, LocalIntake
 from .keys import MaintainerKey
-from .peggy import Peggy
+from .punch import Punch
 from .state import State
 
 
@@ -20,13 +20,13 @@ def _load(config_path: str) -> dict:
     return cfg
 
 
-def _build_peggy(cfg: dict, now: float) -> Peggy:
+def _build_punch(cfg: dict, now: float) -> Punch:
     base = cfg["_dir"]
     rel = lambda p: p if os.path.isabs(p) else os.path.join(base, p)  # noqa: E731
     meta = metagraph.load({**cfg["metagraph"], "path": rel(cfg["metagraph"].get("path", ""))})
     key = MaintainerKey.load_or_create(rel(cfg["key_path"]))
     state = State(rel(cfg["state_db"]), now)
-    return Peggy(rel(cfg["workspace"]), rel(cfg["pool_config"]), meta, key, state,
+    return Punch(rel(cfg["workspace"]), rel(cfg["pool_config"]), meta, key, state,
                  split=cfg.get("split", "dev"), seed=cfg.get("seed", 1), per_suite=cfg.get("per_suite", 150))
 
 
@@ -49,14 +49,14 @@ def cmd_register(args):
 def cmd_process_local(args):
     cfg = _load(args.config)
     now = args.now if args.now else time.time()
-    peggy = _build_peggy(cfg, now)
+    punch = _build_punch(cfg, now)
     with open(args.spec) as f:
         specs = json.load(f)["submissions"]
     base = cfg["_dir"]
     for s in specs:
         s["repo_dir"] = s["repo_dir"] if os.path.isabs(s["repo_dir"]) else os.path.join(base, s["repo_dir"])
     for sub in LocalIntake(specs).submissions():
-        d = peggy.process(sub)
+        d = punch.process(sub)
         print(f"{sub.competition}#{sub.pr}: {d.status.upper()} — {d.reason}"
               + (f" (tier {d.tier})" if d.tier else ""))
     return 0
@@ -65,7 +65,7 @@ def cmd_process_local(args):
 def cmd_run(args):
     """Production loop: poll GitHub, process each open PR, comment + merge."""
     cfg = _load(args.config)
-    peggy = _build_peggy(cfg, time.time())
+    punch = _build_punch(cfg, time.time())
     gh = GitHubIntake({c: v["repo"] for c, v in cfg["repos"].items() if "repo" in v})
     for comp in cfg["repos"]:
         if "repo" not in cfg["repos"][comp]:
@@ -73,10 +73,10 @@ def cmd_run(args):
         for pr, head, payload in gh.open_prs(comp):
             checkout = cfg["repos"][comp]["dir"]
             gh.checkout(comp, pr, checkout)
-            from .peggy import Submission
+            from .punch import Submission
 
-            d = peggy.process(Submission(comp, pr, checkout, payload))
-            gh.comment(comp, pr, f"Peggy verdict: **{d.status}** — {d.reason}"
+            d = punch.process(Submission(comp, pr, checkout, payload))
+            gh.comment(comp, pr, f"Punch verdict: **{d.status}** — {d.reason}"
                        + (f" (tier `{d.tier}`)" if d.tier else ""))
             if d.status == "merged":
                 gh.merge(comp, pr)
@@ -85,14 +85,14 @@ def cmd_run(args):
 
 def cmd_snapshot(args):
     cfg = _load(args.config)
-    peggy = _build_peggy(cfg, time.time())
-    peggy.state.publish_snapshots(os.path.join(peggy.ws, "oc-maintainer", "state"))
+    punch = _build_punch(cfg, time.time())
+    punch.state.publish_snapshots(os.path.join(punch.ws, "omakase-maintainer", "state"))
     print("published queue/metrics/miners snapshots")
     return 0
 
 
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(prog="oc-maintainer", description=__doc__)
+    p = argparse.ArgumentParser(prog="omakase-maintainer", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("keygen"); s.add_argument("--path", default="state/maintainer.key"); s.set_defaults(fn=cmd_keygen)

@@ -3,14 +3,14 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "oc-maintainer"
+name = "omakase-maintainer"
 version = "0.1.0"
-description = "Peggy — the maintainer agent for the OC orchestration competitions."
+description = "Punch — the maintainer agent for the OC orchestration competitions."
 requires-python = ">=3.11"
-dependencies = ["oc-eval", "substrate-interface>=1.7", "pynacl>=1.5"]
+dependencies = ["omakase-eval", "substrate-interface>=1.7", "pynacl>=1.5"]
 
 [project.scripts]
-oc-maintainer = "oc_maintainer.cli:main"
+omakase-maintainer = "omakase_maintainer.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["oc_maintainer*"]
+include = ["omakase_maintainer*"]

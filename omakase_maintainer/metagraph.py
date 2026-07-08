@@ -69,12 +69,58 @@ class SubstrateMetagraph:
             return json.load(r).get("github_login")
 
 
+@dataclass
+class GittensorApiMetagraph:
+    """Production binding source: the gittensor.io validator API.
+
+    GET /miners returns the validator's registered miners with their
+    hotkey → githubUsername/githubId pairing and eligibility. The validator
+    enforces **zero changes** to a hotkey↔github pairing, so this is the trust
+    anchor for identity — no PAT storage, no on-chain-history problem. We bind
+    on the immutable `githubId` (usernames can be renamed on GitHub); the PR's
+    author proves GitHub control, the hotkey signature proves hotkey control.
+    No auth required. Cached briefly to avoid hammering the endpoint.
+    """
+
+    api_url: str = "https://api.gittensor.io"
+    ttl_s: float = 60.0
+    _cache: dict | None = None
+    _fetched_at: float = 0.0
+
+    def _miners(self) -> dict[str, dict]:
+        import time
+        import urllib.request
+
+        if self._cache is not None and time.monotonic() - self._fetched_at < self.ttl_s:
+            return self._cache
+        req = urllib.request.Request(f"{self.api_url}/miners", headers={"User-Agent": "omakase-maintainer/0.1"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            rows = json.load(r)
+        self._cache = {row["hotkey"]: row for row in rows}
+        self._fetched_at = time.monotonic()
+        return self._cache
+
+    def is_registered(self, hotkey: str) -> bool:
+        row = self._miners().get(hotkey)
+        return bool(row and row.get("isEligible", True))  # eligible = active + scoring
+
+    def github_for(self, hotkey: str) -> str | None:
+        return (self._miners().get(hotkey) or {}).get("githubUsername")
+
+    def github_id_for(self, hotkey: str) -> str | None:
+        """The immutable numeric GitHub id — the identity to bind on."""
+        return (self._miners().get(hotkey) or {}).get("githubId")
+
+
 def load(config: dict) -> Metagraph:
-    """Factory: {'backend': 'local'|'substrate', ...}."""
-    if config.get("backend", "local") == "local":
+    """Factory: backend ∈ {'local','substrate','gittensor-api'}."""
+    backend = config.get("backend", "local")
+    if backend == "local":
         return LocalRegistry.from_file(config["path"])
+    if backend == "gittensor-api":
+        return GittensorApiMetagraph(api_url=config.get("api_url", "https://api.gittensor.io"))
     return SubstrateMetagraph(
         netuid=config.get("netuid", 74),
-        rpc_url=config.get("rpc_url", "wss://entrypoint-finney.opentensor.ai:443"),
+        rpc_url=config.get("rpc_url", "wss://rpc.blockmachine.io"),
         binding_url=config.get("binding_url"),
     )

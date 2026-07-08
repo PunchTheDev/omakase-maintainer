@@ -1,6 +1,6 @@
 # Hippius weights storage
 
-`oc_maintainer/storage.py` ships a real Hippius S3 client (SigV4, boto3). It was
+`omakase_maintainer/storage.py` ships a real Hippius S3 client (SigV4, boto3). It was
 verified to reach the live gateway — a probe upload returned
 `SignatureDoesNotMatch`, which means the endpoint, client, and signing flow all
 work and only the credentials are missing.
@@ -28,7 +28,7 @@ Then flip the store config from `{"backend":"local"}` to
    (`weights_crypto.seal`) and uploads ciphertext to Hippius. The store never
    holds plaintext.
 2. The manifest carries `hippius_object_key` + `weights_sha256` + the sealed key.
-3. Peggy downloads, verifies the sha, unseals inside the canonical rerun
+3. Punch downloads, verifies the sha, unseals inside the canonical rerun
    (`weights_crypto.unseal`) — the only place plaintext exists.
 4. On merge, the symmetric key is published (`weights_crypto.reveal_key`):
    champion weights become public — the open ratchet.

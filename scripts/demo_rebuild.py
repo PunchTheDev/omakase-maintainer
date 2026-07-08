@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Rebuild a clean, real canonical ledger by driving Peggy over a realistic set
+"""Rebuild a clean, real canonical ledger by driving Punch over a realistic set
 of submissions — a genesis champion, a copycat the king-of-the-hill gate rejects,
 and an unregistered spammer the pre-gate closes for free. Produces the signed
 ledger, champion baseline, maintainer state, and dashboard snapshots.
 
-Run with the mock pool up:  oc-eval mockpool --port 8100 &
+Run with the mock pool up:  omakase-eval mockpool --port 8100 &
 """
 from __future__ import annotations
 
@@ -16,16 +16,16 @@ from substrateinterface import Keypair
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..", "..")
-sys.path.insert(0, os.path.join(ROOT, "oc-eval"))
+sys.path.insert(0, os.path.join(ROOT, "omakase-eval"))
 
-from oc_maintainer import identity, metagraph  # noqa: E402
-from oc_maintainer.keys import MaintainerKey  # noqa: E402
-from oc_maintainer.peggy import Peggy, Submission  # noqa: E402
-from oc_maintainer.state import State  # noqa: E402
+from omakase_maintainer import identity, metagraph  # noqa: E402
+from omakase_maintainer.keys import MaintainerKey  # noqa: E402
+from omakase_maintainer.punch import Punch, Submission  # noqa: E402
+from omakase_maintainer.state import State  # noqa: E402
 
-OC_ROUTER = os.path.join(ROOT, "oc-router")
-OC_HARNESS = os.path.join(ROOT, "oc-harness")
-POOL = os.path.join(ROOT, "oc-eval", "configs", "pool.dev.json")
+OC_ROUTER = os.path.join(ROOT, "omakase-router")
+OC_HARNESS = os.path.join(ROOT, "omakase-harness")
+POOL = os.path.join(ROOT, "omakase-eval", "configs", "pool.dev.json")
 REGISTRY = os.path.join(HERE, "..", "configs", "registry.dev.json")
 STATE_DIR = os.path.join(HERE, "..", "state")
 
@@ -33,8 +33,8 @@ STATE_DIR = os.path.join(HERE, "..", "state")
 # merged hedge-retry harness is a genuine, measured improvement over it.
 SEED_HARNESS = '''"""Seed reference harness (v2): one worker call, no follow-up. The baseline main starts at."""
 from __future__ import annotations
-from oc_eval import templates
-from oc_eval.actions import Call
+from omakase_eval import templates
+from omakase_eval.actions import Call
 
 
 def run_task(router, view, pool, budget) -> str:
@@ -46,7 +46,7 @@ def run_task(router, view, pool, budget) -> str:
 '''
 
 
-def signed(kp, github, weights_sha, competition="oc-router"):
+def signed(kp, github, weights_sha, competition="omakase-router"):
     p = {"competition": competition, "hotkey": kp.ss58_address, "github_login": github,
          "weights_sha256": weights_sha, "self_score": {"accuracy": 0.9, "split": "dev", "seed": 1}}
     p["signature"] = identity.sign_payload(kp, p)
@@ -54,21 +54,21 @@ def signed(kp, github, weights_sha, competition="oc-router"):
 
 
 def signed_harness(kp, github, head_sha):
-    p = {"competition": "oc-harness", "hotkey": kp.ss58_address, "github_login": github,
+    p = {"competition": "omakase-harness", "hotkey": kp.ss58_address, "github_login": github,
          "claimed_delta": 0.03, "head_sha": head_sha, "self_score": {"accuracy": 0.93, "split": "dev", "seed": 1}}
     p["signature"] = identity.sign_payload(kp, p)
     return p
 
 
-def rebuild_harness(peggy, miner):
-    """Set main to the seed harness, then merge the current (hedge-retry) harness through Peggy."""
+def rebuild_harness(punch, miner):
+    """Set main to the seed harness, then merge the current (hedge-retry) harness through Punch."""
     import glob
     import subprocess
     for f in ("frontier.jsonl", "signatures.json", "hedge-retry.json"):
         path = os.path.join(OC_HARNESS, "runs", f)
         if os.path.exists(path):
             os.remove(path)
-    for stale in glob.glob(os.path.join(OC_HARNESS, "runs", "peggy-*.json")) + glob.glob(os.path.join(OC_HARNESS, "runs", "run-*.json")):
+    for stale in glob.glob(os.path.join(OC_HARNESS, "runs", "punch-*.json")) + glob.glob(os.path.join(OC_HARNESS, "runs", "run-*.json")):
         os.remove(stale)
     live = os.path.join(OC_HARNESS, "harness", "system.py")
     kept = open(live).read()
@@ -80,14 +80,14 @@ def rebuild_harness(peggy, miner):
     finally:
         open(live, "w").write(kept)  # restore the real (improved) harness
     # genesis rebaseline marker in the ledger
-    from oc_eval import frontier
-    from oc_maintainer import signing
+    from omakase_eval import frontier
+    from omakase_maintainer import signing
     e = frontier.append(os.path.join(OC_HARNESS, "runs", "frontier.jsonl"), "rebaseline",
-                        {"competition": "oc-harness", "note": "genesis: main = seed reference harness"},
-                        ts=peggy.state.now)
-    signing.sign_entry(peggy.key, os.path.join(OC_HARNESS, "runs"), e["sha"])
-    d = peggy.process(Submission("oc-harness", 1, OC_HARNESS, signed_harness(miner, "harness-miner", "deadbeef")))
-    print(f"oc-harness#1 [harness-miner]: {d.status.upper()} — {d.reason}" + (f" ({d.tier})" if d.tier else ""))
+                        {"competition": "omakase-harness", "note": "genesis: main = seed reference harness"},
+                        ts=punch.state.now)
+    signing.sign_entry(punch.key, os.path.join(OC_HARNESS, "runs"), e["sha"])
+    d = punch.process(Submission("omakase-harness", 1, OC_HARNESS, signed_harness(miner, "harness-miner", "deadbeef")))
+    print(f"omakase-harness#1 [harness-miner]: {d.status.upper()} — {d.reason}" + (f" ({d.tier})" if d.tier else ""))
 
 
 def main() -> int:
@@ -120,7 +120,7 @@ def main() -> int:
     if os.path.exists(db):
         os.remove(db)
     state = State(db, now=1_783_500_000.0)
-    peggy = Peggy(ROOT, POOL, meta, key, state, split="dev", seed=1)
+    punch = Punch(ROOT, POOL, meta, key, state, split="dev", seed=1)
 
     subs = [
         ("genesis-miner", genesis, weights_sha, 1),
@@ -128,12 +128,12 @@ def main() -> int:
         ("stranger", stranger, weights_sha, 3),
     ]
     for github, kp, sha, pr in subs:
-        d = peggy.process(Submission("oc-router", pr, OC_ROUTER, signed(kp, github, sha)))
-        print(f"oc-router#{pr} [{github}]: {d.status.upper()} — {d.reason}" + (f" ({d.tier})" if d.tier else ""))
+        d = punch.process(Submission("omakase-router", pr, OC_ROUTER, signed(kp, github, sha)))
+        print(f"omakase-router#{pr} [{github}]: {d.status.upper()} — {d.reason}" + (f" ({d.tier})" if d.tier else ""))
 
-    rebuild_harness(peggy, harness_miner)
+    rebuild_harness(punch, harness_miner)
 
-    peggy.state.publish_snapshots(STATE_DIR)
+    punch.state.publish_snapshots(STATE_DIR)
     print(f"maintainer pubkey: {key.pubkey_hex}")
     print("snapshots + signed ledger written")
     return 0

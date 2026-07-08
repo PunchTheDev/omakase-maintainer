@@ -1,4 +1,4 @@
-"""Submission intake — where PRs become Submissions Peggy can process.
+"""Submission intake — where PRs become Submissions Punch can process.
 
 GitHubIntake is the production path (gh CLI: list open PRs, read the payload
 block, checkout the head, post the verdict, merge). LocalIntake is the same
@@ -11,7 +11,7 @@ import json
 import re
 import subprocess
 
-from .peggy import Submission
+from .punch import Submission
 
 _PAYLOAD_BLOCK = re.compile(r"```json\s*(\{.*?\})\s*```", re.S)
 
@@ -28,7 +28,7 @@ def extract_payload(pr_body: str) -> dict | None:
 
 
 class LocalIntake:
-    """Drive Peggy from explicit specs — the deterministic test/simulation path."""
+    """Drive Punch from explicit specs — the deterministic test/simulation path."""
 
     def __init__(self, specs: list[dict]):
         # spec: {competition, pr, repo_dir, payload}

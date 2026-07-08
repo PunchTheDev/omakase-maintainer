@@ -1,4 +1,4 @@
-"""The gate walk — the mechanical checks Peggy runs before the expensive rerun.
+"""The gate walk — the mechanical checks Punch runs before the expensive rerun.
 
 Default verdict is reject: a gate passes only on affirmative evidence. Each
 returns (ok, reason_code). The order is cheapest-first so spam dies before any
@@ -60,9 +60,9 @@ _HARNESS_BANNED = re.compile(
     r"|importlib|__import__|eval|exec|open|globals|vars)\b")
 
 
-def gate_artifact_router(repo_dir: str, oc_eval_dir: str) -> tuple[bool, str]:
-    sys.path.insert(0, oc_eval_dir)
-    from oc_eval import routers  # noqa: E402
+def gate_artifact_router(repo_dir: str, omakase_eval_dir: str) -> tuple[bool, str]:
+    sys.path.insert(0, omakase_eval_dir)
+    from omakase_eval import routers  # noqa: E402
 
     sub = os.path.join(repo_dir, "submission")
     try:
