@@ -19,7 +19,7 @@ ED25519, SR25519 = 0, 1
 def signing_message(payload: dict) -> bytes:
     """The bytes a miner signs. Deterministic and binding: competition ‖ hotkey ‖ artifact.
 
-    OC-R binds the weights sha; OC-H binds the PR head sha. Binding the hotkey
+    Router binds the weights sha; Harness binds the PR head sha. Binding the hotkey
     stops a leaked artifact from being re-sealed under someone else's identity.
     """
     competition = payload["competition"]

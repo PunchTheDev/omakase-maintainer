@@ -66,7 +66,7 @@ def rebuild_harness(punch, miner):
     import hashlib
     import shutil
     import subprocess
-    # sync the OMK-H pin to the current OMK-R champion
+    # sync the Harness pin to the current Router champion
     src = os.path.join(OC_ROUTER, "submission", "weights.json")
     shutil.copy(src, os.path.join(OC_HARNESS, "pinned", "router-weights.json"))
     sha = hashlib.sha256(open(src, "rb").read()).hexdigest()

@@ -93,7 +93,7 @@ def cmd_snapshot(args):
 
 
 def cmd_bump_pin(args):
-    """Weekly reset: pin the current OMK-R champion into OMK-H, re-baseline main.
+    """Weekly reset: pin the current Router champion into Harness, re-baseline main.
 
     Run on a schedule (see scripts/weekly_reset.sh). Reads the reigning router
     champion, copies its weights into omakase-harness/pinned, updates
@@ -129,7 +129,7 @@ def cmd_bump_pin(args):
     entry = punch._append_signed("omakase-harness",
                                  {"competition": "omakase-harness", "note": f"weekly pin bump → champion {sha[:12]}"})
     punch._snapshot()
-    print(f"pinned champion {sha[:12]}… into OMK-H; re-baselined; signed reset {entry['sha'][:12]}")
+    print(f"pinned champion {sha[:12]}… into Harness; re-baselined; signed reset {entry['sha'][:12]}")
     return 0
 
 
@@ -146,7 +146,7 @@ def main(argv=None) -> int:
     s.add_argument("--now", type=float, default=0.0); s.set_defaults(fn=cmd_process_local)
     s = sub.add_parser("run"); s.add_argument("--config", default="configs/maintainer.dev.json"); s.set_defaults(fn=cmd_run)
     s = sub.add_parser("snapshot"); s.add_argument("--config", default="configs/maintainer.dev.json"); s.set_defaults(fn=cmd_snapshot)
-    s = sub.add_parser("bump-pin", help="weekly: pin the OMK-R champion into OMK-H + re-baseline")
+    s = sub.add_parser("bump-pin", help="weekly: pin the Router champion into Harness + re-baseline")
     s.add_argument("--config", default="configs/maintainer.dev.json"); s.set_defaults(fn=cmd_bump_pin)
 
     args = p.parse_args(argv)
