@@ -14,7 +14,7 @@ import sys
 from dataclasses import dataclass
 
 from oc_eval import baselines as bl
-from oc_eval import engine, frontier, routers, score, suites, transcripts
+from oc_eval import engine, frontier, routers, score, stats, suites, transcripts
 from oc_eval import transcripts as tx_mod
 
 from . import gates, signing
@@ -140,6 +140,7 @@ class Peggy:
             "competition": "oc-router",
             "manifest_sha256": routers.sha256_file(os.path.join(sub.repo_dir, "submission", "manifest.json")),
             "split": self.split, "seed": self.seed, "n_tasks": len(tasks),
+            "mde": round(stats.minimum_detectable_effect(len(tasks)), 4),
             "verdict": verdict.to_dict(), "transcript_sha256": transcripts.write(tx, tx_dir),
         }
         return blob, verdict.passed, ("champion" if verdict.passed else None)
