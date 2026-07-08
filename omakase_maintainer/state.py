@@ -109,10 +109,23 @@ class State:
 
     def miners(self) -> list[dict]:
         rows = self.db.execute("SELECT * FROM miners ORDER BY credibility DESC").fetchall()
-        return [{"hotkey": r["hotkey"], "github_login": r["github_login"],
-                 "credibility": round(r["credibility"], 3), "banned": bool(r["banned"]),
-                 "submissions": self.db.execute("SELECT COUNT(*) FROM submissions WHERE hotkey=?", (r["hotkey"],)).fetchone()[0]}
-                for r in rows]
+        out = []
+        for r in rows:
+            last = self.db.execute(
+                "SELECT MAX(decided_ts) FROM submissions WHERE hotkey=? AND decided_ts IS NOT NULL",
+                (r["hotkey"],)).fetchone()[0]
+            in_flight = self.db.execute(
+                "SELECT COUNT(*) FROM submissions WHERE hotkey=? AND status IN('queued','running')",
+                (r["hotkey"],)).fetchone()[0]
+            out.append({
+                "hotkey": r["hotkey"], "github_login": r["github_login"],
+                "credibility": round(r["credibility"], 3), "banned": bool(r["banned"]),
+                "submissions": self.db.execute("SELECT COUNT(*) FROM submissions WHERE hotkey=?", (r["hotkey"],)).fetchone()[0],
+                # next moment a new submission is admissible (cooldown from the last decision)
+                "next_eligible_ts": round(last + RERUN_COOLDOWN_S, 3) if last else None,
+                "in_flight": bool(in_flight),
+            })
+        return out
 
     def publish_snapshots(self, state_dir: str) -> None:
         os.makedirs(state_dir, exist_ok=True)

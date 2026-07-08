@@ -5,28 +5,36 @@
    "github_login": "genesis-miner",
    "credibility": 1.0,
    "banned": false,
-   "submissions": 1
+   "submissions": 1,
+   "next_eligible_ts": 1783586400.0,
+   "in_flight": false
   },
   {
    "hotkey": "5DChvaCWPnStdNpVe9WfzHmxmpiNX5AqcXuDSUH3uQtYD7ti",
    "github_login": "harness-miner",
    "credibility": 1.0,
    "banned": false,
-   "submissions": 1
+   "submissions": 1,
+   "next_eligible_ts": 1783586400.0,
+   "in_flight": false
   },
   {
    "hotkey": "5EtP7K9V6KMvGKA6j9kxBH5kkDEAyPPUB1Ya4dvA35iyCe3J",
    "github_login": "copycat-miner",
    "credibility": 0.97,
    "banned": false,
-   "submissions": 1
+   "submissions": 1,
+   "next_eligible_ts": 1783586400.0,
+   "in_flight": false
   },
   {
    "hotkey": "5ERqXXgVYvWohj3ayNB6sH2JzAFmfr6vyUasowEVXMq7qfWf",
    "github_login": "stranger",
    "credibility": 0.66,
    "banned": false,
-   "submissions": 1
+   "submissions": 1,
+   "next_eligible_ts": 1783586400.0,
+   "in_flight": false
   }
  ]
 }

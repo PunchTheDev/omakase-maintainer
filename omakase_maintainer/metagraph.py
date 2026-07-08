@@ -94,8 +94,13 @@ class GittensorApiMetagraph:
         if self._cache is not None and time.monotonic() - self._fetched_at < self.ttl_s:
             return self._cache
         req = urllib.request.Request(f"{self.api_url}/miners", headers={"User-Agent": "omakase-maintainer/0.1"})
-        with urllib.request.urlopen(req, timeout=15) as r:
-            rows = json.load(r)
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                rows = json.load(r)
+        except Exception:  # noqa: BLE001 — transient API blip: serve last-good rather than reject honest miners
+            if self._cache is not None:
+                return self._cache
+            raise
         self._cache = {row["hotkey"]: row for row in rows}
         self._fetched_at = time.monotonic()
         return self._cache
