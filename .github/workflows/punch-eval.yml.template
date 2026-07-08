@@ -1,0 +1,31 @@
+# Punch canonical rerun — the maintainer-side eval that decides the crown.
+# ENABLE once Punch is on a host (VPS) with the secrets below. Rename to
+# punch-eval.yml. Runs on a self-hosted runner on the VPS (holds the private
+# gate seeds + signing key + pool creds); GitHub-hosted runners must NOT get
+# these secrets.
+#
+# Required repo/org secrets: OPENROUTER_API_KEY, HIPPIUS_ACCESS_KEY,
+#   HIPPIUS_SECRET_KEY, HIPPIUS_BUCKET, (maintainer.key + gate seeds live on
+#   the runner's disk, never in the repo).
+name: punch-eval
+on:
+  # Punch polls PRs itself (omakase_maintainer.cli run); this workflow is the
+  # alternative event-driven path. pull_request_target gives write scope.
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+jobs:
+  canonical-rerun:
+    runs-on: [self-hosted, punch]   # the VPS runner
+    steps:
+      - uses: actions/checkout@v4
+        with: { repository: PunchTheDev/omakase-maintainer, path: omakase-maintainer }
+      - name: Run Punch against the open PRs
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          HIPPIUS_ACCESS_KEY: ${{ secrets.HIPPIUS_ACCESS_KEY }}
+          HIPPIUS_SECRET_KEY: ${{ secrets.HIPPIUS_SECRET_KEY }}
+          HIPPIUS_BUCKET: ${{ secrets.HIPPIUS_BUCKET }}
+          GH_TOKEN: ${{ secrets.PUNCH_GH_TOKEN }}
+        run: |
+          cd omakase-maintainer
+          python -m omakase_maintainer.cli run --config configs/maintainer.prod.json

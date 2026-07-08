@@ -1,0 +1,19 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: omakase-maintainer }
+      - uses: actions/checkout@v4
+        with: { repository: PunchTheDev/omakase-eval, path: omakase-eval }
+      - uses: actions/checkout@v4
+        with: { repository: PunchTheDev/omakase-router, path: omakase-router }
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e omakase-eval -e omakase-maintainer pytest
+      - name: Unit + e2e (mock pool; no network identity backend)
+        run: cd omakase-maintainer && pytest -q
