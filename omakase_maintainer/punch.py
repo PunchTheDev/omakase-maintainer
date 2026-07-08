@@ -127,10 +127,13 @@ class Punch:
         pool = Pool.from_config(self.pool_config)
         tasks = suites.generate_split(self.split, self.seed)
         results = engine.run_split(router, tasks, pool, self.seed, self.split)
-        # King-of-the-hill: significance is measured against the current champion.
+        # King-of-the-hill: significance vs the current champion. Cost is only
+        # gated router-vs-router (a reigning champion); at genesis the incumbent
+        # is the single-worker floor, so accuracy alone crowns the first champion.
         runs_dir = os.path.join(sub.repo_dir, "runs")
+        has_champion = os.path.exists(bl.champion_path(runs_dir))
         incumbent = bl.load_incumbent(runs_dir, bl.deserialize_results(base.best_single_results))
-        verdict = score.judge(results, incumbent, base.oracle_accuracy)
+        verdict = score.judge(results, incumbent, base.oracle_accuracy, gate_cost=has_champion)
         if verdict.passed:  # new champion — cache its results so the next challenger must beat it
             bl.write_champion(os.path.join(self.ws, "omakase-router", "runs"), results, self.split, self.seed)
         tx = transcripts.build(tasks, results, self.seed,

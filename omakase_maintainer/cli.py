@@ -21,7 +21,7 @@ def _load(config_path: str) -> dict:
 
 
 def _build_punch(cfg: dict, now: float) -> Punch:
-    base = cfg["_dir"]
+    base = os.path.dirname(cfg["_dir"])  # config lives in configs/; paths are repo-root relative
     rel = lambda p: p if os.path.isabs(p) else os.path.join(base, p)  # noqa: E731
     meta = metagraph.load({**cfg["metagraph"], "path": rel(cfg["metagraph"].get("path", ""))})
     key = MaintainerKey.load_or_create(rel(cfg["key_path"]))
@@ -91,6 +91,47 @@ def cmd_snapshot(args):
     return 0
 
 
+def cmd_bump_pin(args):
+    """Weekly reset: pin the current OMK-R champion into OMK-H, re-baseline main.
+
+    Run on a schedule (see scripts/weekly_reset.sh). Reads the reigning router
+    champion, copies its weights into omakase-harness/pinned, updates
+    router-pin.json, re-baselines the harness against the new pin, and records a
+    signed 'reset' entry. Idempotent when the champion is unchanged.
+    """
+    import hashlib
+    import shutil
+
+    cfg = _load(args.config)
+    punch = _build_punch(cfg, time.time())
+    ws = punch.ws
+    src = os.path.join(ws, "omakase-router", "submission", "weights.json")
+    dst = os.path.join(ws, "omakase-harness", "pinned", "router-weights.json")
+    with open(src, "rb") as f:
+        sha = hashlib.sha256(f.read()).hexdigest()
+
+    pin_path = os.path.join(ws, "omakase-harness", "router-pin.json")
+    current = json.load(open(pin_path)) if os.path.exists(pin_path) else {}
+    if current.get("weights_sha256") == sha:
+        print(f"pin already current ({sha[:12]}…) — no bump")
+        return 0
+
+    shutil.copy(src, dst)
+    json.dump({"source": "omakase-router current champion", "weights_sha256": sha, "arch": "tiny-linear"},
+              open(pin_path, "w"), indent=1)
+    import subprocess
+
+    harness_dir = os.path.join(ws, "omakase-harness")
+    subprocess.run([sys.executable, "scripts/gen_manifest.py"], cwd=harness_dir, check=True, capture_output=True)
+    # re-baseline the harness main against the new pinned router
+    punch._rebaseline_harness(type("S", (), {"repo_dir": os.path.join(ws, "omakase-harness")})())
+    entry = punch._append_signed("omakase-harness",
+                                 {"competition": "omakase-harness", "note": f"weekly pin bump → champion {sha[:12]}"})
+    punch._snapshot()
+    print(f"pinned champion {sha[:12]}… into OMK-H; re-baselined; signed reset {entry['sha'][:12]}")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="omakase-maintainer", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -104,6 +145,8 @@ def main(argv=None) -> int:
     s.add_argument("--now", type=float, default=0.0); s.set_defaults(fn=cmd_process_local)
     s = sub.add_parser("run"); s.add_argument("--config", default="configs/maintainer.dev.json"); s.set_defaults(fn=cmd_run)
     s = sub.add_parser("snapshot"); s.add_argument("--config", default="configs/maintainer.dev.json"); s.set_defaults(fn=cmd_snapshot)
+    s = sub.add_parser("bump-pin", help="weekly: pin the OMK-R champion into OMK-H + re-baseline")
+    s.add_argument("--config", default="configs/maintainer.dev.json"); s.set_defaults(fn=cmd_bump_pin)
 
     args = p.parse_args(argv)
     return args.fn(args)
