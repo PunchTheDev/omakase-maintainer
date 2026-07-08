@@ -44,7 +44,7 @@ class SubstrateMetagraph:
     """
 
     netuid: int = 74
-    rpc_url: str = "wss://entrypoint-finney.opentensor.ai:443"
+    rpc_url: str = "wss://rpc.blockmachine.io"  # free public Bittensor RPC, no key
     binding_url: str | None = None
 
     def _subtensor(self):
@@ -53,8 +53,11 @@ class SubstrateMetagraph:
         return SubstrateInterface(url=self.rpc_url)
 
     def is_registered(self, hotkey: str) -> bool:
-        sub = self._subtensor()
-        result = sub.query("SubtensorModule", "Uids", [self.netuid, hotkey])
+        from substrateinterface.utils.ss58 import is_valid_ss58_address
+
+        if not is_valid_ss58_address(hotkey):
+            return False
+        result = self._subtensor().query("SubtensorModule", "Uids", [self.netuid, hotkey])
         return result.value is not None
 
     def github_for(self, hotkey: str) -> str | None:

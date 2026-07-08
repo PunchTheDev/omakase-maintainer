@@ -1,0 +1,21 @@
+{
+  "$comment": "Production config. Swap backends in; no code changes. Secrets via env, never here.",
+  "workspace": "..",
+  "pool_config": "../oc-eval/configs/pool.prod.example.json",
+  "split": "gate",
+  "seed": 1,
+  "per_suite": 300,
+  "metagraph": {
+    "backend": "substrate",
+    "netuid": 74,
+    "rpc_url": "wss://rpc.blockmachine.io",
+    "binding_url": "https://das-gittensor.<host>/binding"
+  },
+  "storage": {"backend": "hippius", "bucket": "oc-weights"},
+  "key_path": "state/maintainer.key",
+  "state_db": "state/maintainer.db",
+  "repos": {
+    "oc-router": {"repo": "<org>/oc-router", "dir": "../oc-router"},
+    "oc-harness": {"repo": "<org>/oc-harness", "dir": "../oc-harness"}
+  }
+}
