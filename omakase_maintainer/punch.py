@@ -150,11 +150,16 @@ class Punch:
 
     def _rerun_harness(self, sub: Submission):
         out = os.path.join(sub.repo_dir, "runs", f"punch-{sub.pr}.json")
-        subprocess.run(
+        # exit 0 = tier awarded, exit 1 = valid "did not beat main" — both write the
+        # blob. Only a missing blob (real crash) is an error; check=True here would
+        # crash the whole run loop on the most common outcome (an honest non-winner).
+        proc = subprocess.run(
             [sys.executable, "eval_adapter.py", "--pool", self.pool_config,
              "--split", self.split, "--seed", str(self.seed), "--per-suite", str(self.per_suite),
              "--out", out, "--transcripts", os.path.join(sub.repo_dir, "runs", "transcripts")],
-            cwd=sub.repo_dir, check=True, capture_output=True, text=True)
+            cwd=sub.repo_dir, capture_output=True, text=True)
+        if not os.path.exists(out):
+            raise RuntimeError(f"harness eval crashed (rc={proc.returncode}): {proc.stderr[-500:]}")
         with open(out) as f:
             blob = json.load(f)
         blob.pop("task_summary", None)
