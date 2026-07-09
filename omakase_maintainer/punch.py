@@ -46,9 +46,25 @@ class Decision:
     entry_sha: str | None = None
 
 
+PUBLIC_SPLIT = "dev"  # the only split whose seed and transcripts may be published
+
+
 class Punch:
     def __init__(self, workspace: str, pool_config: str, meta: Metagraph, key: MaintainerKey,
-                 state: State, split: str = "dev", seed: int = 1, per_suite: int = 150):
+                 state: State, split: str = "dev", seed: int = 1, per_suite: int = 150,
+                 private_dir: str | None = None, sandbox_mode: str = "process",
+                 allow_unisolated_gate: bool = False):
+        # A real round runs untrusted PR code on the box holding the signing key and
+        # the gate seed. The process sandbox blinds that code, but same-uid file
+        # reads are still a path to the key — so a private split demands OS-level
+        # isolation unless the operator asserts the host itself is disposable
+        # (an isolated runner that holds no key: the recommended topology).
+        if split != PUBLIC_SPLIT and sandbox_mode == "process" and not allow_unisolated_gate:
+            raise ValueError(
+                f"split {split!r} scores real stakes: run the harness under `sandbox_mode='docker'`, "
+                "or set allow_unisolated_gate=true only on a runner that holds no signing key "
+                "and no gate seed on disk."
+            )
         self.ws = workspace
         self.omakase_eval_dir = os.path.join(workspace, "omakase-eval")
         self.pool_config = pool_config
@@ -56,6 +72,12 @@ class Punch:
         self.key = key
         self.state = state
         self.split, self.seed, self.per_suite = split, seed, per_suite
+        self.sandbox_mode = sandbox_mode
+        # On a private split the transcript is *committed to* (its sha lands in the
+        # signed ledger) but not *published* — its bytes hold every gate prompt and
+        # answer. It is written here instead, and released when the round retires.
+        self.public = split == PUBLIC_SPLIT
+        self.private_dir = private_dir or os.path.join(workspace, "omakase-maintainer", "state", "private")
 
     def process(self, sub: Submission) -> Decision:
         comp = sub.competition
@@ -118,35 +140,54 @@ class Punch:
         return Decision("merged", "win", tier=tier, blob=blob, entry_sha=entry["sha"])
 
     # -- canonical reruns ----------------------------------------------------
+    def transcript_dir(self, comp: str) -> str:
+        """Public splits publish transcripts in-repo; private splits withhold the bytes."""
+        if self.public:
+            return os.path.join(self.ws, comp, "runs", "transcripts")
+        return os.path.join(self.private_dir, comp, "transcripts")
+
     def _rerun_router(self, sub: Submission):
-        base = bl.load(os.path.join(sub.repo_dir, "runs", "baselines.dev.json"))
-        router = routers.load_router(os.path.join(sub.repo_dir, "submission", "manifest.json"),
-                                     os.path.join(sub.repo_dir, "submission"))
         from omakase_eval.workers import Pool
 
         pool = Pool.from_config(self.pool_config)
+        runs_dir = os.path.join(sub.repo_dir, "runs")
+        # Refuses a baseline scored on another split/seed/pool: pairing a gate run
+        # against the dev baseline compares disjoint task ids and means nothing.
+        base = bl.load_for(runs_dir, self.split, self.seed, pool)
+        router = routers.load_router(os.path.join(sub.repo_dir, "submission", "manifest.json"),
+                                     os.path.join(sub.repo_dir, "submission"))
+
         tasks = suites.generate_split(self.split, self.seed)
         results = engine.run_split(router, tasks, pool, self.seed, self.split)
         # King-of-the-hill: significance vs the current champion. Cost is only
         # gated router-vs-router (a reigning champion); at genesis the incumbent
         # is the single-worker floor, so accuracy alone crowns the first champion.
-        runs_dir = os.path.join(sub.repo_dir, "runs")
         has_champion = os.path.exists(bl.champion_path(runs_dir))
-        incumbent = bl.load_incumbent(runs_dir, bl.deserialize_results(base.best_single_results))
+        incumbent = bl.load_incumbent(runs_dir, bl.deserialize_results(base.best_single_results),
+                                      self.split, self.seed)
         verdict = score.judge(results, incumbent, base.oracle_accuracy, gate_cost=has_champion)
         if verdict.passed:  # new champion — cache its results so the next challenger must beat it
             bl.write_champion(os.path.join(self.ws, "omakase-router", "runs"), results, self.split, self.seed)
-        tx = transcripts.build(tasks, results, self.seed,
-                               header={"competition": "omakase-router", "split": self.split, "seed": self.seed})
-        tx_dir = os.path.join(sub.repo_dir, "runs", "transcripts")
+
+        header = {"competition": "omakase-router", "split": self.split}
+        if self.public:  # a private split's seed is the answer key — never publish it
+            header["seed"] = self.seed
+        tx = transcripts.build(tasks, results, self.seed, header=header)
         blob = {
             "competition": "omakase-router",
             "manifest_sha256": routers.sha256_file(os.path.join(sub.repo_dir, "submission", "manifest.json")),
-            "split": self.split, "seed": self.seed, "n_tasks": len(tasks),
+            "split": self.split, "n_tasks": len(tasks),
             "mde": round(stats.minimum_detectable_effect(len(tasks)), 4),
-            "verdict": verdict.to_dict(), "transcript_sha256": transcripts.write(tx, tx_dir),
+            "verdict": verdict.to_dict(),
+            "transcript_sha256": transcripts.write(tx, self.transcript_dir("omakase-router")),
         }
+        if self.public:
+            blob["seed"] = self.seed
         return blob, verdict.passed, ("champion" if verdict.passed else None)
+
+    def _adapter_env(self) -> dict:
+        """The seed rides in the environment, never argv — `ps` is world-readable."""
+        return {**os.environ, "OMAKASE_SEED": str(self.seed)}
 
     def _rerun_harness(self, sub: Submission):
         out = os.path.join(sub.repo_dir, "runs", f"punch-{sub.pr}.json")
@@ -155,9 +196,10 @@ class Punch:
         # crash the whole run loop on the most common outcome (an honest non-winner).
         proc = subprocess.run(
             [sys.executable, "eval_adapter.py", "--pool", self.pool_config,
-             "--split", self.split, "--seed", str(self.seed), "--per-suite", str(self.per_suite),
-             "--out", out, "--transcripts", os.path.join(sub.repo_dir, "runs", "transcripts")],
-            cwd=sub.repo_dir, capture_output=True, text=True)
+             "--split", self.split, "--per-suite", str(self.per_suite),
+             "--sandbox", self.sandbox_mode,
+             "--out", out, "--transcripts", self.transcript_dir("omakase-harness")],
+            cwd=sub.repo_dir, capture_output=True, text=True, env=self._adapter_env())
         if not os.path.exists(out):
             raise RuntimeError(f"harness eval crashed (rc={proc.returncode}): {proc.stderr[-500:]}")
         with open(out) as f:
@@ -169,14 +211,19 @@ class Punch:
     def _rebaseline_harness(self, sub: Submission) -> None:
         subprocess.run(
             [sys.executable, "eval_adapter.py", "--pool", self.pool_config, "--split", self.split,
-             "--seed", str(self.seed), "--per-suite", str(self.per_suite), "--rebaseline"],
-            cwd=sub.repo_dir, check=True, capture_output=True, text=True)
+             "--per-suite", str(self.per_suite), "--sandbox", self.sandbox_mode, "--rebaseline"],
+            cwd=sub.repo_dir, check=True, capture_output=True, text=True, env=self._adapter_env())
 
     # -- helpers -------------------------------------------------------------
     def _write_run_blob(self, comp: str, pr: int, blob: dict) -> None:
-        """Persist the scored run (with per-task summary) so the API/dashboard list it."""
+        """Persist the scored run (with per-task summary) so the API/dashboard list it.
+
+        The summary carries per-task ids and correctness — the McNemar evidence —
+        but never a prompt or an answer, so it is publishable even for a gate run
+        whose full transcript is withheld.
+        """
         runs_dir = os.path.join(self.ws, comp, "runs")
-        tx = tx_mod.read(os.path.join(runs_dir, "transcripts"), blob["transcript_sha256"])
+        tx = tx_mod.read(self.transcript_dir(comp), blob["transcript_sha256"])
         record = {**blob, "pr": pr, "task_summary": tx_mod.summarize(tx) if tx else []}
         os.makedirs(runs_dir, exist_ok=True)
         with open(os.path.join(runs_dir, f"run-{pr}.json"), "w") as f:

@@ -7,7 +7,7 @@ import os
 import sys
 import time
 
-from . import metagraph
+from . import metagraph, seeds
 from .intake import GitHubIntake, LocalIntake
 from .keys import MaintainerKey
 from .punch import Punch
@@ -27,8 +27,14 @@ def _build_punch(cfg: dict, now: float) -> Punch:
     meta = metagraph.load({**cfg["metagraph"], "path": rel(cfg["metagraph"].get("path", ""))})
     key = MaintainerKey.load_or_create(rel(cfg["key_path"]))
     state = State(rel(cfg["state_db"]), now)
+    split = cfg.get("split", "dev")
+    seed_file = cfg.get("gate_seed_file")
+    # On a private split this refuses the committed config seed outright.
+    seed = seeds.resolve(split, cfg.get("seed"), rel(seed_file) if seed_file else None)
     return Punch(rel(cfg["workspace"]), rel(cfg["pool_config"]), meta, key, state,
-                 split=cfg.get("split", "dev"), seed=cfg.get("seed", 1), per_suite=cfg.get("per_suite", 150))
+                 split=split, seed=seed, per_suite=cfg.get("per_suite", 150),
+                 sandbox_mode=cfg.get("sandbox", "process"),
+                 allow_unisolated_gate=cfg.get("allow_unisolated_gate", False))
 
 
 def cmd_keygen(args):
@@ -133,6 +139,16 @@ def cmd_bump_pin(args):
     return 0
 
 
+def cmd_rotate_seed(args):
+    """Retire the current gate seed (it becomes public) and mint the next round's."""
+    store = seeds.SeedStore(args.path)
+    rnd = store.rotate()
+    print(f"round {rnd.number}: new gate seed minted ({seeds.SEED_BITS}-bit), stored in {args.path}")
+    print(f"{len(store.retired())} retired seed(s) now publishable — past receipts are reproducible")
+    print("the seed itself is never printed — export OMAKASE_GATE_SEED_FILE to use it")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="omakase-maintainer", description=__doc__)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -148,6 +164,9 @@ def main(argv=None) -> int:
     s = sub.add_parser("snapshot"); s.add_argument("--config", default="configs/maintainer.dev.json"); s.set_defaults(fn=cmd_snapshot)
     s = sub.add_parser("bump-pin", help="weekly: pin the Router champion into Harness + re-baseline")
     s.add_argument("--config", default="configs/maintainer.dev.json"); s.set_defaults(fn=cmd_bump_pin)
+    s = sub.add_parser("rotate-seed", help="retire the current gate seed and mint the next round's")
+    s.add_argument("--path", default="state/gate-seed.json", help="secret seed store; must be git-ignored")
+    s.set_defaults(fn=cmd_rotate_seed)
 
     args = p.parse_args(argv)
     return args.fn(args)

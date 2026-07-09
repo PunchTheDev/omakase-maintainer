@@ -75,6 +75,14 @@ def gate_artifact_router(repo_dir: str, omakase_eval_dir: str) -> tuple[bool, st
 
 
 def gate_artifact_harness(repo_dir: str) -> tuple[bool, str]:
+    """A cheap pre-filter, NOT the containment boundary.
+
+    Reflection and string-splitting walk around any regex, so this never was a
+    security control — it is a fast, friendly rejection of the obvious cases
+    before spending pool budget on a rerun. Containment is the sandbox
+    (`omakase_eval.sandbox`): the answers are not importable there, the seed is
+    not in scope, and the environment holds no secrets.
+    """
     for dirpath, _, files in os.walk(os.path.join(repo_dir, "harness")):
         for name in files:
             if name.endswith(".py"):

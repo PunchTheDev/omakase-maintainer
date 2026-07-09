@@ -1,9 +1,8 @@
 {
- "$comment": "Production config. Swap backends in; no code changes. Secrets via env, never here.",
+ "$comment": "Production config. Swap backends in; no code changes. Secrets via env, never here. The gate seed lives in gate_seed_file (git-ignored) or $OMAKASE_GATE_SEED \u2014 a committed gate seed is a published answer key.",
  "workspace": "..",
  "pool_config": "../omakase-eval/configs/pool.prod.example.json",
  "split": "gate",
- "seed": 1,
  "per_suite": 300,
  "metagraph": {
   "backend": "gittensor-api",
@@ -25,5 +24,8 @@
    "repo": "<org>/omakase-harness",
    "dir": "../omakase-harness"
   }
- }
+ },
+ "gate_seed_file": "state/gate-seed.json",
+ "sandbox": "docker",
+ "$sandbox_comment": "Untrusted PR code runs here. 'docker' = no network, read-only FS, nobody uid. Use 'process' + allow_unisolated_gate only on a runner that holds no signing key."
 }

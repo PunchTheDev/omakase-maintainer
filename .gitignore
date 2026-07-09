@@ -3,3 +3,5 @@ __pycache__/
 state/*.key
 state/*.db
 .env.local
+state/gate-seed.json
+state/private/
