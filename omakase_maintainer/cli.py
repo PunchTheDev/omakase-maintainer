@@ -59,7 +59,7 @@ def cmd_process_local(args):
     for sub in LocalIntake(specs).submissions():
         d = punch.process(sub)
         print(f"{sub.competition}#{sub.pr}: {d.status.upper()} — {d.reason}"
-              + (f" (tier {d.tier})" if d.tier else ""))
+              + (f" ({d.tier})" if d.tier else ""))
     return 0
 
 
@@ -78,7 +78,7 @@ def cmd_run(args):
 
             d = punch.process(Submission(comp, pr, checkout, payload))
             gh.comment(comp, pr, f"Punch verdict: **{d.status}** — {d.reason}"
-                       + (f" (tier `{d.tier}`)" if d.tier else ""))
+                       + (f" (`{d.tier}`)" if d.tier else ""))
             if d.status == "merged":
                 gh.merge(comp, pr)
     return 0

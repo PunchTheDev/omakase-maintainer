@@ -150,7 +150,7 @@ class Punch:
 
     def _rerun_harness(self, sub: Submission):
         out = os.path.join(sub.repo_dir, "runs", f"punch-{sub.pr}.json")
-        # exit 0 = tier awarded, exit 1 = valid "did not beat main" — both write the
+        # exit 0 = won the crown, exit 1 = valid "did not beat main" — both write the
         # blob. Only a missing blob (real crash) is an error; check=True here would
         # crash the whole run loop on the most common outcome (an honest non-winner).
         proc = subprocess.run(
@@ -163,7 +163,8 @@ class Punch:
         with open(out) as f:
             blob = json.load(f)
         blob.pop("task_summary", None)
-        return blob, bool(blob["passed"]), blob.get("tier")
+        # Same king-of-the-hill label as Router: a significant win IS the crown.
+        return blob, bool(blob["passed"]), ("champion" if blob["passed"] else None)
 
     def _rebaseline_harness(self, sub: Submission) -> None:
         subprocess.run(
