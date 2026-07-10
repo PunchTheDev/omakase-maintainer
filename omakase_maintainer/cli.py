@@ -31,10 +31,12 @@ def _build_punch(cfg: dict, now: float) -> Punch:
     seed_file = cfg.get("gate_seed_file")
     # On a private split this refuses the committed config seed outright.
     seed = seeds.resolve(split, cfg.get("seed"), rel(seed_file) if seed_file else None)
+    trusted = cfg.get("trusted_workspace")
     return Punch(rel(cfg["workspace"]), rel(cfg["pool_config"]), meta, key, state,
                  split=split, seed=seed, per_suite=cfg.get("per_suite", 150),
                  sandbox_mode=cfg.get("sandbox", "process"),
-                 allow_unisolated_gate=cfg.get("allow_unisolated_gate", False))
+                 allow_unisolated_gate=cfg.get("allow_unisolated_gate", False),
+                 trusted_ws=rel(trusted) if trusted else None)
 
 
 def cmd_keygen(args):
@@ -70,19 +72,35 @@ def cmd_process_local(args):
 
 
 def cmd_run(args):
-    """Production loop: poll GitHub, process each open PR, comment + merge."""
+    """Production loop: poll GitHub, process each open PR in isolation, comment + merge.
+
+    Each PR is materialized in a throwaway worktree — never over the maintainer's
+    trusted checkout, which is what Punch reads canonical manifests and baselines
+    from. Untrusted PR files (their manifest, runs/ baselines, eval_adapter) stay
+    quarantined in the worktree.
+    """
+    import shutil
+    import tempfile
+
+    from .punch import Submission
+
     cfg = _load(args.config)
+    base = os.path.dirname(cfg["_dir"])
+    rel = lambda p: p if os.path.isabs(p) else os.path.join(base, p)  # noqa: E731
     punch = _build_punch(cfg, time.time())
     gh = GitHubIntake({c: v["repo"] for c, v in cfg["repos"].items() if "repo" in v})
     for comp in cfg["repos"]:
         if "repo" not in cfg["repos"][comp]:
             continue
+        trusted_repo = rel(cfg["repos"][comp]["dir"])  # the clean checkout Punch trusts
         for pr, head, payload in gh.open_prs(comp):
-            checkout = cfg["repos"][comp]["dir"]
-            gh.checkout(comp, pr, checkout)
-            from .punch import Submission
-
-            d = punch.process(Submission(comp, pr, checkout, payload))
+            work = tempfile.mkdtemp(prefix=f"omakase-pr-{comp}-{pr}-")
+            try:
+                gh.checkout(comp, pr, work, trusted_repo)
+                d = punch.process(Submission(comp, pr, work, payload))
+            finally:
+                gh.cleanup(pr, work, trusted_repo)
+                shutil.rmtree(work, ignore_errors=True)
             gh.comment(comp, pr, f"Punch verdict: **{d.status}** — {d.reason}"
                        + (f" (`{d.tier}`)" if d.tier else ""))
             if d.status == "merged":

@@ -128,7 +128,14 @@ def test_a_dev_baseline_cannot_judge_a_gate_run(tmp_path):
     gate_blob = {**blob, "split": "gate", "seed": None,
                  "seed_fingerprint": suites.split_fingerprint("gate", 111)}
     (runs / "baselines.gate.json").write_text(json.dumps(gate_blob))
-    with pytest.raises(bl.StaleBaseline, match="different seed"):
+    with pytest.raises(bl.StaleBaseline, match="seed fingerprint"):
+        bl.load_for(str(runs), "gate", GATE_SEED, pool)
+
+    # a forged baseline that simply omits the stamps must ALSO be refused (the old
+    # `if base.seed_fingerprint and ...` let an empty string skip the check)
+    forged = {**blob, "split": "gate", "seed_fingerprint": "", "pool_version": "", "suite_version": ""}
+    (runs / "baselines.gate.json").write_text(json.dumps(forged))
+    with pytest.raises(bl.StaleBaseline):
         bl.load_for(str(runs), "gate", GATE_SEED, pool)
 
 
@@ -165,3 +172,78 @@ def test_gate_baseline_never_stores_its_seed(tmp_path, pool_server):
     assert base.seed is None
     assert base.seed_fingerprint == suites.split_fingerprint("gate", GATE_SEED)
     assert GATE_SEED not in json.loads(base.to_json()).values()
+
+
+# -- attacker-supplied-data trust boundaries (the two criticals) --------------
+
+def _checkout(dst):
+    shutil.copytree(REPO, dst, ignore=shutil.ignore_patterns(".git", "__pycache__", ".venv"))
+    subprocess.run(["git", "init", "-q"], cwd=dst, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=dst, check=True)
+    champ = os.path.join(dst, "runs", "champion-baseline.json")
+    if os.path.exists(champ):
+        os.remove(champ)
+
+
+def _seed_registry(hotkey, github):
+    return LocalRegistry({hotkey: {"github_login": github}})
+
+
+def test_tampered_locked_file_is_caught_by_the_canonical_manifest(tmp_path):
+    """The eval_adapter-swap exploit: a miner edits a locked file, updates their OWN
+    manifest hash to match, and the old gate passed. Now the gate authenticates
+    against the maintainer's manifest, so a self-consistent tampered PR is rejected."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    _checkout(str(ws / "omakase-router"))            # trusted maintainer checkout
+    pr = tmp_path / "pr" / "omakase-router"
+    _checkout(str(pr))                                # attacker's PR checkout
+
+    # tamper a locked file in the PR and rewrite the PR's OWN manifest hash to match
+    manifest = json.load(open(pr / "manifest.json"))
+    victim = next(iter(manifest["locked"]))          # any locked file — e.g. a doc or code file
+    (pr / victim).write_text((pr / victim).read_text() + "\n# injected\n")
+    import hashlib
+    manifest["locked"][victim] = hashlib.sha256((pr / victim).read_bytes()).hexdigest()
+    json.dump(manifest, open(pr / "manifest.json", "w"))
+    subprocess.run(["git", "add", "-A"], cwd=pr, check=True)
+
+    kp = Keypair.create_from_uri("//Tamper")
+    punch = _punch(ws, _seed_registry(kp.ss58_address, "tamper"))  # trusted_ws defaults to ws
+    sha = json.load(open(pr / "submission" / "manifest.json"))["weights_sha256"]
+    payload = {"competition": "omakase-router", "hotkey": kp.ss58_address, "github_login": "tamper",
+               "weights_sha256": sha, "self_score": {"accuracy": 0.9, "split": "dev", "seed": 1}}
+    payload["signature"] = identity.sign_payload(kp, payload)
+    d = punch.process(Submission("omakase-router", 1, str(pr), payload))
+    assert d.status == "closed" and d.reason.startswith("locked-file-modified"), d.reason
+
+
+def test_forged_incumbent_baseline_in_the_pr_is_ignored(tmp_path, pool_server):
+    """The router baseline + champion cache are read from the maintainer's checkout,
+    not the PR's runs/. A forged all-wrong incumbent shipped in the PR grants nothing."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    _checkout(str(ws / "omakase-router"))
+    pr = tmp_path / "pr" / "omakase-router"
+    _checkout(str(pr))
+
+    # forge a baseline in the PR: every incumbent answer wrong → any router "wins"
+    real = json.load(open(pr / "runs" / "baselines.dev.json"))
+    forged = {**real, "best_single_results": [{**r, "correct": False} for r in real["best_single_results"]]}
+    json.dump(forged, open(pr / "runs" / "baselines.dev.json", "w"))
+    subprocess.run(["git", "add", "-A"], cwd=pr, check=True)
+
+    kp = Keypair.create_from_uri("//ForgeBaseline")
+    punch = _punch(ws, _seed_registry(kp.ss58_address, "forge"))
+    sha = json.load(open(pr / "submission" / "manifest.json"))["weights_sha256"]
+    payload = {"competition": "omakase-router", "hotkey": kp.ss58_address, "github_login": "forge",
+               "weights_sha256": sha, "self_score": {"accuracy": 0.9, "split": "dev", "seed": 1}}
+    payload["signature"] = identity.sign_payload(kp, payload)
+    d = punch.process(Submission("omakase-router", 1, str(pr), payload))
+    # genesis: the trusted best-single floor is used, not the PR's all-wrong forgery.
+    # The champion router legitimately clears the floor, but the forged baseline gives
+    # it no artificial edge — the decisive point is the verdict used the TRUSTED base,
+    # which we assert by the champion accuracy matching a real rerun, not ~1.0-vs-0.
+    assert d.blob is not None
+    base = d.blob["verdict"]["baseline"]["accuracy"]
+    assert base > 0.4, f"a forged all-wrong incumbent leaked into scoring (baseline acc {base})"

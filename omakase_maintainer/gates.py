@@ -31,23 +31,47 @@ def gate_identity(payload: dict, meta: Metagraph) -> tuple[bool, str]:
     return True, "ok"
 
 
-# --- Gate 2: locked files (tree-authoritative) -----------------------------
+# --- Gate 2: locked files (verified against the MAINTAINER's manifest) ------
 
 
-def gate_locked_files(repo_dir: str, unlocked_prefixes: tuple[str, ...]) -> tuple[bool, str]:
-    with open(os.path.join(repo_dir, "manifest.json")) as f:
-        locked = json.load(f)["locked"]
+def gate_locked_files(repo_dir: str, unlocked_prefixes: tuple[str, ...],
+                      canonical_locked: dict[str, str]) -> tuple[bool, str]:
+    """Every locked file in the PR must match the maintainer's canonical hash.
+
+    `canonical_locked` is the trusted {path: sha256} map — read by Punch from its
+    OWN checkout, never from the submission. The earlier version read the locked
+    map from `repo_dir/manifest.json` (the PR's copy) and skipped verifying
+    manifest.json itself, so a miner could edit any locked file — including
+    `eval_adapter.py`, the trusted grader that runs unsandboxed with the gate seed
+    in its environment — recompute its hash, write that into their own manifest,
+    and pass. Authenticating against the attacker's manifest is no check at all.
+
+    The canonical map defines the locked set; the PR's manifest.json is not
+    consulted. A locked file that is missing, modified, or that the PR added
+    outside an unlocked prefix without it being canonical, is a reject.
+    """
+    if not canonical_locked:
+        return False, "locked-manifest-unavailable"  # never fail open
     tracked = subprocess.run(["git", "-C", repo_dir, "ls-files"], capture_output=True, text=True).stdout.split()
     for path in tracked:
         if path == "manifest.json" or path.startswith(unlocked_prefixes):
             continue
+        if path not in canonical_locked:
+            return False, f"locked-file-unlisted:{path}"  # a new file outside the unlocked area
         full = os.path.join(repo_dir, path)
-        if path not in locked:
-            return False, f"locked-file-unlisted:{path}"
         if not os.path.exists(full):
             return False, f"locked-file-deleted:{path}"
         with open(full, "rb") as f:
-            if hashlib.sha256(f.read()).hexdigest() != locked[path]:
+            if hashlib.sha256(f.read()).hexdigest() != canonical_locked[path]:
+                return False, f"locked-file-modified:{path}"
+    # Every canonical locked file must actually be present and correct (a PR
+    # can't drop one by removing it from git tracking).
+    for path, want in canonical_locked.items():
+        full = os.path.join(repo_dir, path)
+        if not os.path.exists(full):
+            return False, f"locked-file-deleted:{path}"
+        with open(full, "rb") as f:
+            if hashlib.sha256(f.read()).hexdigest() != want:
                 return False, f"locked-file-modified:{path}"
     return True, "ok"
 

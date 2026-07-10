@@ -57,8 +57,26 @@ class GitHubIntake:
             if payload:
                 yield pr["number"], pr["headRefOid"], payload
 
-    def checkout(self, competition: str, pr: int, into: str) -> None:
-        self._gh("pr", "checkout", str(pr), "--repo", self.repos[competition], "-b", f"pr-{pr}")
+    def checkout(self, competition: str, pr: int, into: str, trusted_repo_dir: str) -> None:
+        """Materialize the PR head in an ISOLATED worktree at `into`, leaving the
+        maintainer's trusted checkout (`trusted_repo_dir`) untouched.
+
+        The old `gh pr checkout` switched the branch in place, so the PR's files
+        (its manifest, its runs/ baselines, its eval_adapter) overwrote the very
+        tree Punch reads canonical hashes and baselines from — defeating the
+        trust boundary. A detached worktree keeps the two separate: Punch reads
+        canon from `trusted_repo_dir`, scores the artifact in `into`.
+        """
+        subprocess.run(["git", "-C", trusted_repo_dir, "fetch", "origin",
+                        f"pull/{pr}/head:refs/heads/pr-{pr}"], check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", trusted_repo_dir, "worktree", "add", "--force", "--detach",
+                        into, f"pr-{pr}"], check=True, capture_output=True, text=True)
+
+    def cleanup(self, pr: int, into: str, trusted_repo_dir: str) -> None:
+        subprocess.run(["git", "-C", trusted_repo_dir, "worktree", "remove", "--force", into],
+                       capture_output=True, text=True)
+        subprocess.run(["git", "-C", trusted_repo_dir, "branch", "-D", f"pr-{pr}"],
+                       capture_output=True, text=True)
 
     def comment(self, competition: str, pr: int, body: str) -> None:
         self._gh("pr", "comment", str(pr), "--repo", self.repos[competition], "--body", body)
